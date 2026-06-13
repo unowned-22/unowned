@@ -12,7 +12,7 @@ services:
       - caddy_config:/config
   postgres:
     image: postgres:17
-    container_name: api_postgres
+    container_name: postgres
     restart: unless-stopped
     environment:
       POSTGRES_DB: unnamed_db
@@ -50,8 +50,20 @@ services:
       PORT: 3222
     restart: unless-stopped
 
+  worker:
+    image: airlance/go:1.26.compile
+    container_name: worker
+    volumes:
+      - ./workspace/api:/app
+    command: ["sh", "-c", "while [ ! -f ./app ]; do sleep 1; done && ./app worker"]
+    depends_on:
+      - api
+      - rabbitmq
+    restart: unless-stopped
+
   adminer:
     image: adminer
+    container_name: adminer
     restart: unless-stopped
 
   rabbitmq:
