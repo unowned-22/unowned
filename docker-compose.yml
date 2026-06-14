@@ -50,7 +50,7 @@ services:
 
   panel:
     image: airlance/vite-react-vue:24-alpine
-    container_name: app
+    container_name: panel
     volumes:
       - ./workspace/panel:/app
     depends_on:
