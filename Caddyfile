@@ -1,5 +1,5 @@
 http://app.localhost {
-    reverse_proxy app:3222
+    reverse_proxy panel:3222
 }
 
 http://api.localhost {
