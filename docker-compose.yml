@@ -37,6 +37,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
+      redis:
+        condition: service_started
     restart: unless-stopped
 
   app:
@@ -58,6 +60,7 @@ services:
     command: ["sh", "-c", "while [ ! -f ./app ]; do sleep 1; done && ./app worker"]
     depends_on:
       - api
+      - redis
       - rabbitmq
     restart: unless-stopped
 
@@ -89,6 +92,16 @@ services:
       MINIO_ROOT_USER: studio-minio
       MINIO_ROOT_PASSWORD: studio-minio
 
+  redis:
+    image: redis:8-alpine
+    container_name: redis
+    restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
+
   mailpit:
     image: axllent/mailpit:latest
     container_name: mailpit
@@ -105,3 +118,4 @@ volumes:
   postgres_data:
   caddy_data:
   caddy_config:
+  redis_data:
