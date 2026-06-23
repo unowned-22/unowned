@@ -186,3 +186,14 @@ Password: studio-minio
 * All services are available through Caddy.
 * Application repositories are mounted into containers from the local `workspace` directory.
 * Docker volumes are used to persist PostgreSQL data.
+
+Stories feature (backend + frontend)
+-----------------------------------
+
+This repository contains an in-progress Stories feature (ephemeral user stories similar to social apps).
+
+- Server-side: stories are stored one row per user in the `stories` table; uploads for story media are placed into a private MinIO bucket and only object keys are persisted. The API returns short-lived presigned GET URLs for serving private media.
+- Endpoints added: `POST /api/v1/stories` (publish/append), `GET /api/v1/stories/me`, `GET /api/v1/stories/feed`, `POST /api/v1/stories/{id}/view`, `POST /api/v1/stories/media` and helpers for likes/replies.
+- Current visibility decision: the `friends` and `close` visibility options are not implemented yet — they are currently treated as `everyone` in the feed. Implementing a social graph (follows/friends/close-friends) is planned as a follow-up and is intentionally skipped for now to unblock delivery of core features.
+
+See `workspace/api/AGENTS.md` and `workspace/panel/AGENTS.md` for developer notes about the implementation and next steps.
