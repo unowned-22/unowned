@@ -44,7 +44,15 @@ services:
         condition: service_healthy
       redis:
         condition: service_started
+      meilisearch:
+        condition: service_started
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
     networks:
       - unowned
 
@@ -56,6 +64,8 @@ services:
     command: ["sh", "-c", "while [ ! -f ./app ]; do sleep 1; done && ./app worker"]
     depends_on:
       postgres:
+        condition: service_healthy
+      api:
         condition: service_healthy
       redis:
         condition: service_started
@@ -86,7 +96,7 @@ services:
       - unowned
 
   rabbitmq:
-    image: rabbitmq:3.8.8-management
+    image: rabbitmq:4-management
     container_name: rabbitmq
     restart: unless-stopped
     environment:
@@ -110,6 +120,20 @@ services:
       MINIO_ROOT_PASSWORD: studio-minio
     volumes:
       - ./workspace/storage:/data
+    networks:
+      - unowned
+
+  meilisearch:
+    image: getmeili/meilisearch:v1.8
+    container_name: meilisearch
+    restart: unless-stopped
+    ports:
+      - "7700:7700"
+    environment:
+      MEILI_MASTER_KEY: super-secret-key-change-me
+      MEILI_ENV: development
+    volumes:
+      - ./workspace/search:/meili_data
     networks:
       - unowned
 
