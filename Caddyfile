@@ -29,3 +29,7 @@ http://db.localhost {
 http://search.localhost {
     reverse_proxy meilisearch:7700
 }
+
+http://call.localhost {
+    reverse_proxy livekit:7880
+}
