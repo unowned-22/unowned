@@ -7,18 +7,18 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile
+      - ./config/hosts:/etc/caddy/Caddyfile
       - caddy_data:/data
       - caddy_config:/config
     networks:
       - unowned
 
   postgres:
-    image: postgres:17
+    image: postgres:17-alpine
     container_name: postgres
     restart: unless-stopped
     environment:
-      POSTGRES_DB: unnamed_db
+      POSTGRES_DB: unowned
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
     ports:
@@ -26,7 +26,7 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d unnamed_db"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d unowned"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -34,11 +34,19 @@ services:
     networks:
       - unowned
 
+  adminer:
+    image: adminer
+    container_name: adminer
+    restart: unless-stopped
+    networks:
+      - unowned
+
   api:
     image: airlance/go:1.26.rc
     container_name: api
     volumes:
-      - ./workspace/api:/app
+      - ./projects/api:/app
+    restart: unless-stopped
     depends_on:
       postgres:
         condition: service_healthy
@@ -46,9 +54,10 @@ services:
         condition: service_started
       meilisearch:
         condition: service_started
-    restart: unless-stopped
+      scylla:
+        condition: service_healthy
     healthcheck:
-      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health/ready"]
+      test: ["CMD", "wget", "--spider", "-q", "http://localhost:8080/health"]
       interval: 10s
       timeout: 3s
       retries: 10
@@ -60,8 +69,8 @@ services:
     image: airlance/go:1.26.rc
     container_name: worker
     volumes:
-      - ./workspace/api:/app
-    command: ["sh", "-c", "while [ ! -f ./app ]; do sleep 1; done && ./app worker"]
+      - ./projects/api:/app
+    command: ["sh", "-c", "./app worker"]
     depends_on:
       postgres:
         condition: service_healthy
@@ -75,28 +84,11 @@ services:
     networks:
       - unowned
 
-  livekit:
-    image: livekit/livekit-server:latest
-    container_name: livekit
-    restart: unless-stopped
-    command: ["--config", "/etc/livekit.yaml"]
-    volumes:
-      - ./livekit.yaml:/etc/livekit.yaml:ro
-    depends_on:
-      redis:
-        condition: service_started
-    ports:
-      - "7880:7880"
-      - "7881:7881/tcp"
-      - "50000-50100:50000-50100/udp"
-    networks:
-      - unowned
-
-  panel:
+  web:
     image: airlance/vite-react-vue:24-alpine
-    container_name: panel
+    container_name: web
     volumes:
-      - ./workspace/panel:/app
+      - ./projects/web:/app
     depends_on:
       - api
     environment:
@@ -105,10 +97,30 @@ services:
     networks:
       - unowned
 
-  adminer:
-    image: adminer
-    container_name: adminer
+  minio:
+    image: minio/minio:latest
+    container_name: minio
+    command: server /data --console-address ":9001"
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    environment:
+      MINIO_ROOT_USER: studio-minio
+      MINIO_ROOT_PASSWORD: studio-minio
+    volumes:
+      - ./volumes/storage:/data
+    networks:
+      - unowned
+
+  redis:
+    image: redis:8-alpine
+    container_name: redis
     restart: unless-stopped
+    ports:
+      - "6379:6379"
+    volumes:
+      - redis_data:/data
+    command: redis-server --appendonly yes
     networks:
       - unowned
 
@@ -125,19 +137,32 @@ services:
     networks:
       - unowned
 
-  minio:
-    image: minio/minio:latest
-    container_name: minio
-    command: server /data --console-address ":9001"
-    ports:
-      - "9000:9000"
-      - "9001:9001"
-    environment:
-      MINIO_ROOT_USER: studio-minio
-      MINIO_ROOT_PASSWORD: studio-minio
-#      MINIO_SERVER_URL: http://s3.localhost
+  scylla:
+    image: scylladb/scylla:6.0
+    container_name: scylla
+    restart: unless-stopped
     volumes:
-      - ./workspace/storage:/data
+      - ./volumes/scylla:/var/lib/scylla
+    command: --smp 1 --memory 1G --overprovisioned 1
+    ports:
+      - "9042:9042"
+    networks:
+      - unowned
+
+  livekit:
+    image: livekit/livekit-server:latest
+    container_name: livekit
+    restart: unless-stopped
+    command: ["--config", "/etc/livekit.yaml"]
+    volumes:
+      - ./config/livekit.yaml:/etc/livekit.yaml:ro
+    depends_on:
+      redis:
+        condition: service_started
+    ports:
+      - "7880:7880"
+      - "7881:7881/tcp"
+      - "50000-50100:50000-50100/udp"
     networks:
       - unowned
 
@@ -151,19 +176,7 @@ services:
       MEILI_MASTER_KEY: super-secret-key-change-me
       MEILI_ENV: development
     volumes:
-      - ./workspace/search:/meili_data
-    networks:
-      - unowned
-
-  redis:
-    image: redis:8-alpine
-    container_name: redis
-    restart: unless-stopped
-    ports:
-      - "6379:6379"
-    volumes:
-      - redis_data:/data
-    command: redis-server --appendonly yes
+      - ./volumes/search:/meili_data
     networks:
       - unowned
 
@@ -181,10 +194,89 @@ services:
     networks:
       - unowned
 
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    restart: unless-stopped
+    volumes:
+      - ./grafana/prometheus.yml:/etc/prometheus/prometheus.yml
+      - prometheus_data:/prometheus
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+      - '--storage.tsdb.path=/prometheus'
+    networks:
+      - unowned
+
+  loki:
+    image: grafana/loki:3.5.5
+    container_name: loki
+    restart: unless-stopped
+    ports:
+      - "3100:3100"
+    command: -config.file=/etc/loki/local-config.yaml
+    networks:
+      - unowned
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    restart: unless-stopped
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=grafana-admin
+    volumes:
+      - grafana_data:/var/lib/grafana
+      - ./grafana/provisioning:/etc/grafana/provisioning
+    depends_on:
+      - prometheus
+      - loki
+    networks:
+      - unowned
+
+  postgres-exporter:
+    image: prometheuscommunity/postgres-exporter:v0.18.1
+    container_name: postgres-exporter
+    restart: unless-stopped
+    environment:
+      DATA_SOURCE_NAME: "postgresql://postgres:postgres@postgres:5432/unowned?sslmode=disable"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    networks:
+      - unowned
+
+  redis-exporter:
+    image: oliver006/redis_exporter:v1.61.0
+    container_name: redis-exporter
+    restart: unless-stopped
+    environment:
+      REDIS_ADDR: "redis:6379"
+    depends_on:
+      - redis
+    networks:
+      - unowned
+
+  promtail:
+    image: grafana/promtail:3.5.5
+    container_name: promtail
+    restart: unless-stopped
+    volumes:
+      - ./grafana/promtail.yml:/etc/promtail/promtail.yml
+      - /Users/resoul/.docker/run/docker.sock:/var/run/docker.sock:ro
+    command: -config.file=/etc/promtail/promtail.yml
+    depends_on:
+      - loki
+    networks:
+      - unowned
+
 volumes:
-  postgres_data:
   caddy_data:
   caddy_config:
+  postgres_data:
   redis_data:
+  prometheus_data:
+  grafana_data:
+
 networks:
   unowned:
